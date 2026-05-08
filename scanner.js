@@ -2,7 +2,7 @@ const cheerio = require("cheerio");
 const config = require("./config");
 
 const state = new Map();
-let consecutiveErrors = 0;
+const errorCount = new Map();
 let lastHeartbeat = 0;
 let running = true;
 
@@ -75,10 +75,11 @@ async function notifyOutOfStock(product) {
   });
 }
 
-async function notifyError(error) {
+async function notifyError(product, error) {
+  const count = errorCount.get(product.name) || 0;
   await sendDiscord(null, {
-    title: "Scanner Error",
-    description: `Failed ${consecutiveErrors}x.\n\`\`\`${error.message}\`\`\``,
+    title: `Scanner Error — ${product.name}`,
+    description: `Failed ${count}x.\n\`\`\`${error.message}\`\`\``,
     color: 0xffaa00,
     timestamp: new Date().toISOString(),
   });
@@ -86,12 +87,12 @@ async function notifyError(error) {
 
 async function sendHeartbeat() {
   const statuses = config.PRODUCTS.map(
-    (p) => `**${p.name}**: ${state.get(p.name)?.status || "unknown"}`
+    (p) => `**${p.name}** (${p.intervalMs / 1000}s): ${state.get(p.name)?.status || "unknown"}`
   ).join("\n");
 
   await sendDiscord(null, {
     title: "Scanner Heartbeat",
-    description: `Tracking **${config.PRODUCTS.length}** products | ${config.POLL_INTERVAL_MS / 1000}s interval\n\n${statuses}`,
+    description: `Tracking **${config.PRODUCTS.length}** products — independent timers\n\n${statuses}`,
     color: 0x3498db,
     timestamp: new Date().toISOString(),
   });
@@ -162,7 +163,7 @@ async function wooHTML(product) {
 }
 
 // ═══════════════════════════════════════════════════════
-// Shopify channels (FIXED: use inventory_quantity + HTML available)
+// Shopify channels
 // ═══════════════════════════════════════════════════════
 async function shopifyJSON(product) {
   const url = cacheBust(`${product.siteBase}/products/${product.handle}.json`);
@@ -174,10 +175,9 @@ async function shopifyJSON(product) {
   const data = await res.json();
   const p = data.product;
 
-  // .json endpoint does NOT have "available" — use inventory_quantity
   const inStock = p.variants.filter((v) => {
-    if (v.inventory_management === null) return true; // untracked = always available
-    if (v.inventory_policy === "continue") return true; // oversell allowed
+    if (v.inventory_management === null) return true;
+    if (v.inventory_policy === "continue") return true;
     return v.inventory_quantity > 0;
   });
 
@@ -199,7 +199,6 @@ async function shopifyHTML(product) {
   if (!res.ok) throw new Error(`Shopify HTML HTTP ${res.status}`);
   const html = await res.text();
 
-  // Shopify embeds variant data as JSON in the page with real "available" booleans
   const variantMatch = html.match(/"variants"\s*:\s*\[(.*?)\]/s);
   if (variantMatch) {
     try {
@@ -217,17 +216,12 @@ async function shopifyHTML(product) {
     } catch {}
   }
 
-  // Fallback: check for sold out / add to cart text
   const soldOut = /Sold\s*[Oo]ut|Out of [Ss]tock|Unavailable/i.test(html);
   const addToCart = /Add to [Cc]art/i.test(html);
 
-  if (soldOut && !addToCart) {
-    return { status: "out_of_stock", price: "—", stockText: "Sold out", source: "shopify-html" };
-  }
   if (addToCart && !soldOut) {
     return { status: "in_stock", price: "—", stockText: "Available", source: "shopify-html" };
   }
-
   return { status: "out_of_stock", price: "—", stockText: "Sold out", source: "shopify-html" };
 }
 
@@ -270,19 +264,22 @@ async function checkProduct(product) {
   const valid = raceResult.all.filter((r) => r.status !== "error");
   if (!valid.length) {
     const errors = raceResult.all.map((r) => r.source).join(", ");
-    throw new Error(`All channels failed for ${product.name}: ${errors}`);
+    throw new Error(`All channels failed: ${errors}`);
   }
   return valid[0];
 }
 
-// ── Main Loop ──────────────────────────────────────────
-async function tick() {
-  if (!running) return;
+// ═══════════════════════════════════════════════════════
+// Independent loop per product
+// ═══════════════════════════════════════════════════════
+function startProductLoop(product) {
+  async function tick() {
+    if (!running) return;
+    const start = performance.now();
 
-  const results = await Promise.allSettled(
-    config.PRODUCTS.map(async (product) => {
-      const start = performance.now();
+    try {
       const result = await checkProduct(product);
+      errorCount.set(product.name, 0);
       const total = (performance.now() - start).toFixed(0);
 
       log(`[${total}ms] ${product.name} → ${result.source} → ${result.status}${result.sizes ? ` [${result.sizes}]` : ""}`);
@@ -295,30 +292,31 @@ async function tick() {
       } else if (result.status === "out_of_stock" && prev === "in_stock") {
         await notifyOutOfStock(product);
       } else if (result.status === "unknown" && prev !== "unknown") {
-        await notifyError(new Error(`Page structure changed for ${product.name}`));
+        await notifyError(product, new Error("Page structure changed."));
       }
 
       state.set(product.name, { status: result.status });
-      return result;
-    })
-  );
+    } catch (err) {
+      const count = (errorCount.get(product.name) || 0) + 1;
+      errorCount.set(product.name, count);
+      log(`ERROR ${product.name} (${count}/${config.MAX_CONSECUTIVE_ERRORS}): ${err.message}`);
+      if (count === config.MAX_CONSECUTIVE_ERRORS) await notifyError(product, err);
+    }
 
-  const errors = results.filter((r) => r.status === "rejected");
-  if (errors.length === config.PRODUCTS.length) {
-    consecutiveErrors++;
-    log(`ERROR (${consecutiveErrors}/${config.MAX_CONSECUTIVE_ERRORS}): all products failed`);
-    if (consecutiveErrors === config.MAX_CONSECUTIVE_ERRORS) await notifyError(new Error("All products failing"));
-  } else {
-    consecutiveErrors = 0;
+    // Heartbeat check (only one product needs to trigger it)
+    if (Date.now() - lastHeartbeat > config.HEARTBEAT_INTERVAL_MS) await sendHeartbeat();
+
+    if (!running) return;
+    const jitter = Math.floor(Math.random() * product.jitterMs * 2) - product.jitterMs;
+    setTimeout(tick, product.intervalMs + jitter);
   }
 
-  if (Date.now() - lastHeartbeat > config.HEARTBEAT_INTERVAL_MS) await sendHeartbeat();
-  if (!running) return;
-
-  const jitter = Math.floor(Math.random() * config.JITTER_MS * 2) - config.JITTER_MS;
-  setTimeout(tick, config.POLL_INTERVAL_MS + jitter);
+  // Stagger start: random offset so products don't all fire at once
+  const offset = Math.floor(Math.random() * product.intervalMs);
+  setTimeout(tick, offset);
 }
 
+// ── Shutdown ───────────────────────────────────────────
 function shutdown(sig) {
   log(`${sig} — stopping.`);
   running = false;
@@ -327,16 +325,22 @@ function shutdown(sig) {
 process.on("SIGINT", () => shutdown("SIGINT"));
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 
+// ── Bootstrap ──────────────────────────────────────────
 async function main() {
   if (!config.DISCORD_WEBHOOK_URL) {
     console.error("DISCORD_WEBHOOK_URL is required.");
     process.exit(1);
   }
-  log("DropScanner v6 — cloud-ready");
-  config.PRODUCTS.forEach((p) => log(`  ${p.platform.padEnd(12)} ${p.name}`));
-  log(`Interval: ${config.POLL_INTERVAL_MS / 1000}s`);
+
+  log("DropScanner v7 — independent timers");
+  config.PRODUCTS.forEach((p) =>
+    log(`  ${p.platform.padEnd(12)} ${p.name.padEnd(30)} every ${p.intervalMs / 1000}s`)
+  );
+
   await sendHeartbeat();
-  tick();
+
+  // Each product gets its own independent loop
+  config.PRODUCTS.forEach((p) => startProductLoop(p));
 }
 
 main().catch((err) => {
