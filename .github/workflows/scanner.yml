@@ -1,0 +1,29 @@
+name: Stock Scanner
+
+on:
+  schedule:
+    # Restart every 5 hours as a safety net (GitHub Actions max job = 6 hours)
+    - cron: '0 */5 * * *'
+  workflow_dispatch: # Manual trigger
+
+concurrency:
+  group: scanner
+  cancel-in-progress: true  # Kill old run when new cron fires
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350  # Just under 6 hours
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: npm ci
+
+      - name: Run scanner
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: node scanner.js
