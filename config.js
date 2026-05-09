@@ -21,32 +21,6 @@ module.exports = {
       intervalMs: 5_000,
       jitterMs: 500,
     },
-
-    // ── Shopify (sptfootball.com.au) — fast CDN, poll aggressively ──
-    {
-      name: "Nike Mind 001 Slides - White",
-      platform: "shopify",
-      handle: "nike-mind-001-adults-pregame-slides-white",
-      siteBase: "https://sptfootball.com.au",
-      intervalMs: 2_000,
-      jitterMs: 300,
-    },
-    {
-      name: "Nike Mind 001 Slides - Red",
-      platform: "shopify",
-      handle: "nike-mind-001-adults-pregame-slides-red",
-      siteBase: "https://sptfootball.com.au",
-      intervalMs: 2_000,
-      jitterMs: 300,
-    },
-    {
-      name: "Nike Mind 001 Slides - Blue",
-      platform: "shopify",
-      handle: "nike-mind-001-adults-pregame-slides-blue",
-      siteBase: "https://sptfootball.com.au",
-      intervalMs: 2_000,
-      jitterMs: 300,
-    },
   ],
 
   DISCORD_WEBHOOK_URL: process.env.DISCORD_WEBHOOK_URL || "",
