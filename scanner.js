@@ -20,6 +20,29 @@ function stripHTML(str) {
   return str.replace(/<[^>]*>/g, "").replace(/&#036;/g, "$").replace(/&amp;/g, "&").trim();
 }
 
+async function fetchWithRetry(url, options, retries = 2) {
+  for (let i = 0; i <= retries; i++) {
+    try {
+      const res = await fetch(url, options);
+      if (res.status === 429 && i < retries) {
+        const wait = Math.pow(2, i + 1) * 1000;
+        log(`429 on ${new URL(url).hostname} — retry in ${wait}ms`);
+        await new Promise((r) => setTimeout(r, wait));
+        continue;
+      }
+      return res;
+    } catch (err) {
+      if (i < retries) {
+        const wait = Math.pow(2, i + 1) * 1000;
+        log(`Fetch error on ${new URL(url).hostname} — retry ${i + 1}/${retries} in ${wait}ms`);
+        await new Promise((r) => setTimeout(r, wait));
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
 function productUrl(product) {
   if (product.platform === "shopify") {
     return `${product.siteBase}/products/${product.handle}`;
@@ -103,7 +126,7 @@ async function sendHeartbeat() {
 // WooCommerce channels
 // ═══════════════════════════════════════════════════════
 async function wooApiDirect(product) {
-  const res = await fetch(cacheBust(`${product.apiBase}/${product.id}`), {
+  const res = await fetchWithRetry(cacheBust(`${product.apiBase}/${product.id}`), {
     headers: { Accept: "application/json", "Cache-Control": "no-cache, no-store" },
     signal: AbortSignal.timeout(config.REQUEST_TIMEOUT_MS),
   });
@@ -118,7 +141,7 @@ async function wooApiDirect(product) {
 }
 
 async function wooApiSlug(product) {
-  const res = await fetch(cacheBust(`${product.apiBase}?slug=${product.slug}`), {
+  const res = await fetchWithRetry(cacheBust(`${product.apiBase}?slug=${product.slug}`), {
     headers: { Accept: "application/json", "Cache-Control": "no-cache, no-store" },
     signal: AbortSignal.timeout(config.REQUEST_TIMEOUT_MS),
   });
@@ -136,7 +159,7 @@ async function wooApiSlug(product) {
 
 async function wooHTML(product) {
   const url = cacheBust(productUrl(product));
-  const res = await fetch(url, {
+  const res = await fetchWithRetry(url, {
     headers: { "User-Agent": config.USER_AGENT, Accept: "text/html", "Cache-Control": "no-cache, no-store" },
     signal: AbortSignal.timeout(config.REQUEST_TIMEOUT_MS),
   });
