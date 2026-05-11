@@ -4,6 +4,7 @@ const config = require("./config");
 const state = new Map();
 const errorCount = new Map();
 let lastHeartbeat = 0;
+let heartbeatLock = false;
 let running = true;
 
 function log(msg) {
@@ -20,10 +21,12 @@ function stripHTML(str) {
   return str.replace(/<[^>]*>/g, "").replace(/&#036;/g, "$").replace(/&amp;/g, "&").trim();
 }
 
-async function fetchWithRetry(url, options, retries = 2) {
+async function fetchWithRetry(url, options = {}, retries = 2) {
   for (let i = 0; i <= retries; i++) {
+    // Fresh timeout per attempt — previous attempt's signal doesn't bleed over
+    const signal = AbortSignal.timeout(config.REQUEST_TIMEOUT_MS);
     try {
-      const res = await fetch(url, options);
+      const res = await fetch(url, { ...options, signal });
       if (res.status === 429 && i < retries) {
         const wait = Math.pow(2, i + 1) * 1000;
         log(`429 on ${new URL(url).hostname} — retry in ${wait}ms`);
@@ -54,23 +57,31 @@ function productUrl(product) {
 }
 
 // ── Discord ────────────────────────────────────────────
-async function sendDiscord(content, embed) {
+async function sendDiscord(content, embed, maxRetries = 3) {
   if (!config.DISCORD_WEBHOOK_URL) return;
   const body = {};
   if (content) body.content = content;
   if (embed) body.embeds = [embed];
-  try {
-    const res = await fetch(config.DISCORD_WEBHOOK_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (res.status === 429) {
-      const retry = Number(res.headers.get("retry-after") || 5) * 1000;
-      await new Promise((r) => setTimeout(r, retry));
-      return sendDiscord(content, embed);
+
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      const res = await fetch(config.DISCORD_WEBHOOK_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (res.status === 429) {
+        const retry = Number(res.headers.get("retry-after") || 5) * 1000;
+        log(`Discord rate-limited — waiting ${retry}ms (attempt ${i + 1}/${maxRetries})`);
+        await new Promise((r) => setTimeout(r, retry));
+        continue;
+      }
+      return; // Success or non-retryable error
+    } catch {
+      if (i < maxRetries - 1) await new Promise((r) => setTimeout(r, 2000));
     }
-  } catch {}
+  }
+  log("Discord: gave up after max retries");
 }
 
 async function notifyInStock(product, details) {
@@ -112,6 +123,10 @@ async function notifyError(product, error) {
 }
 
 async function sendHeartbeat() {
+  // Prevent multiple loops from firing concurrent heartbeats
+  if (heartbeatLock) return;
+  heartbeatLock = true;
+
   const statuses = config.PRODUCTS.map(
     (p) => `**${p.name}** (${p.intervalMs / 1000}s): ${state.get(p.name)?.status || "unknown"}`
   ).join("\n");
@@ -123,6 +138,7 @@ async function sendHeartbeat() {
     timestamp: new Date().toISOString(),
   });
   lastHeartbeat = Date.now();
+  heartbeatLock = false;
 }
 
 // ═══════════════════════════════════════════════════════
@@ -131,7 +147,6 @@ async function sendHeartbeat() {
 async function wooApiDirect(product) {
   const res = await fetchWithRetry(cacheBust(`${product.apiBase}/${product.id}`), {
     headers: { Accept: "application/json", "Cache-Control": "no-cache, no-store" },
-    signal: AbortSignal.timeout(config.REQUEST_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`API-ID HTTP ${res.status}`);
   const p = await res.json();
@@ -146,7 +161,6 @@ async function wooApiDirect(product) {
 async function wooApiSlug(product) {
   const res = await fetchWithRetry(cacheBust(`${product.apiBase}?slug=${product.slug}`), {
     headers: { Accept: "application/json", "Cache-Control": "no-cache, no-store" },
-    signal: AbortSignal.timeout(config.REQUEST_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`API-slug HTTP ${res.status}`);
   const products = await res.json();
@@ -164,7 +178,6 @@ async function wooHTML(product) {
   const url = cacheBust(productUrl(product));
   const res = await fetchWithRetry(url, {
     headers: { "User-Agent": config.USER_AGENT, Accept: "text/html", "Cache-Control": "no-cache, no-store" },
-    signal: AbortSignal.timeout(config.REQUEST_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`HTML HTTP ${res.status}`);
   const html = await res.text();
@@ -189,13 +202,12 @@ async function wooHTML(product) {
 }
 
 // ═══════════════════════════════════════════════════════
-// Shopify channels
+// Shopify channels (now with retry)
 // ═══════════════════════════════════════════════════════
 async function shopifyJSON(product) {
   const url = cacheBust(`${product.siteBase}/products/${product.handle}.json`);
-  const res = await fetch(url, {
+  const res = await fetchWithRetry(url, {
     headers: { Accept: "application/json", "Cache-Control": "no-cache, no-store" },
-    signal: AbortSignal.timeout(config.REQUEST_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`Shopify JSON HTTP ${res.status}`);
   const data = await res.json();
@@ -218,9 +230,8 @@ async function shopifyJSON(product) {
 
 async function shopifyHTML(product) {
   const url = cacheBust(`${product.siteBase}/products/${product.handle}`);
-  const res = await fetch(url, {
+  const res = await fetchWithRetry(url, {
     headers: { "User-Agent": config.USER_AGENT, Accept: "text/html", "Cache-Control": "no-cache, no-store" },
-    signal: AbortSignal.timeout(config.REQUEST_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`Shopify HTML HTTP ${res.status}`);
   const html = await res.text();
@@ -257,12 +268,11 @@ async function shopifyHTML(product) {
 async function gamersroomHTML(product) {
   const res = await fetchWithRetry(cacheBust(product.url), {
     headers: { "User-Agent": config.USER_AGENT, Accept: "text/html", "Cache-Control": "no-cache, no-store" },
-    signal: AbortSignal.timeout(config.REQUEST_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`GamersRoom HTTP ${res.status}`);
   const html = await res.text();
 
-  // Primary: og meta tag — <meta property="product:availability" content="out of stock">
+  // Primary: og meta tag
   const metaMatch = html.match(/product:availability['"]\s*content=['"]([^'"]+)['"]/i);
   const availability = metaMatch ? metaMatch[1].toLowerCase() : null;
 
@@ -286,11 +296,12 @@ async function gamersroomHTML(product) {
 }
 
 // ═══════════════════════════════════════════════════════
-// Race: first "in_stock" wins
+// Race: first "in_stock" wins (fixed: no double-resolve)
 // ═══════════════════════════════════════════════════════
 function getChannels(product) {
   if (product.platform === "woocommerce") {
-    return [wooApiDirect(product), wooApiSlug(product), wooHTML(product)];
+    // Only 2 channels for flaky CardPlus — reduce load on stressed server
+    return [wooApiDirect(product), wooHTML(product)];
   }
   if (product.platform === "gamersroom") {
     return [gamersroomHTML(product)];
@@ -303,21 +314,31 @@ async function checkProduct(product) {
 
   const raceResult = await new Promise((resolve) => {
     let settled = 0;
+    let resolved = false;
     const results = [];
 
     channels.forEach((p) => {
       p.then((r) => {
+        if (resolved) return; // Already resolved — ignore late arrivals
         if (r.status === "in_stock") {
+          resolved = true;
           resolve({ winner: r });
           return;
         }
         results.push(r);
         settled++;
-        if (settled === channels.length) resolve({ winner: null, all: results });
+        if (settled === channels.length) {
+          resolved = true;
+          resolve({ winner: null, all: results });
+        }
       }).catch((err) => {
+        if (resolved) return;
         results.push({ status: "error", source: err.message });
         settled++;
-        if (settled === channels.length) resolve({ winner: null, all: results });
+        if (settled === channels.length) {
+          resolved = true;
+          resolve({ winner: null, all: results });
+        }
       });
     });
   });
@@ -363,10 +384,14 @@ function startProductLoop(product) {
       const count = (errorCount.get(product.name) || 0) + 1;
       errorCount.set(product.name, count);
       log(`ERROR ${product.name} (${count}/${config.MAX_CONSECUTIVE_ERRORS}): ${err.message}`);
-      if (count === config.MAX_CONSECUTIVE_ERRORS) await notifyError(product, err);
+
+      // Alert at threshold, then alert again every threshold interval (not just once)
+      if (count > 0 && count % config.MAX_CONSECUTIVE_ERRORS === 0) {
+        await notifyError(product, err);
+      }
     }
 
-    // Heartbeat check (only one product needs to trigger it)
+    // Heartbeat
     if (Date.now() - lastHeartbeat > config.HEARTBEAT_INTERVAL_MS) await sendHeartbeat();
 
     if (!running) return;
@@ -374,7 +399,7 @@ function startProductLoop(product) {
     setTimeout(tick, product.intervalMs + jitter);
   }
 
-  // Stagger start: random offset so products don't all fire at once
+  // Stagger start
   const offset = Math.floor(Math.random() * product.intervalMs);
   setTimeout(tick, offset);
 }
@@ -395,14 +420,12 @@ async function main() {
     process.exit(1);
   }
 
-  log("DropScanner v7 — independent timers");
+  log("DropScanner v8 — hardened");
   config.PRODUCTS.forEach((p) =>
-    log(`  ${p.platform.padEnd(12)} ${p.name.padEnd(30)} every ${p.intervalMs / 1000}s`)
+    log(`  ${p.platform.padEnd(12)} ${p.name.padEnd(35)} every ${p.intervalMs / 1000}s`)
   );
 
   await sendHeartbeat();
-
-  // Each product gets its own independent loop
   config.PRODUCTS.forEach((p) => startProductLoop(p));
 }
 
