@@ -21,6 +21,21 @@ module.exports = {
       intervalMs: 5_000,
       jitterMs: 500,
     },
+    // ── GamersRoom (custom platform) ──
+    {
+      name: "OP-17 Booster (GamersRoom)",
+      platform: "gamersroom",
+      url: "https://www.gamersroom.com.au/shop/one-piece-card-game-booster-display-tba-op-17/276222",
+      intervalMs: 5_000,
+      jitterMs: 500,
+    },
+    {
+      name: "EB-05 Extra Booster (GamersRoom)",
+      platform: "gamersroom",
+      url: "https://www.gamersroom.com.au/shop/one-piece-card-game-extra-booster-display-tba-eb-05pre-order/2882601",
+      intervalMs: 5_000,
+      jitterMs: 500,
+    },
   ],
 
   DISCORD_WEBHOOK_URL: process.env.DISCORD_WEBHOOK_URL || "",

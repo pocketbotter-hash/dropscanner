@@ -47,6 +47,9 @@ function productUrl(product) {
   if (product.platform === "shopify") {
     return `${product.siteBase}/products/${product.handle}`;
   }
+  if (product.platform === "gamersroom") {
+    return product.url;
+  }
   return `${product.siteBase}/product/${product.slug}/`;
 }
 
@@ -249,11 +252,48 @@ async function shopifyHTML(product) {
 }
 
 // ═══════════════════════════════════════════════════════
+// GamersRoom channel (meta tag based)
+// ═══════════════════════════════════════════════════════
+async function gamersroomHTML(product) {
+  const res = await fetchWithRetry(cacheBust(product.url), {
+    headers: { "User-Agent": config.USER_AGENT, Accept: "text/html", "Cache-Control": "no-cache, no-store" },
+    signal: AbortSignal.timeout(config.REQUEST_TIMEOUT_MS),
+  });
+  if (!res.ok) throw new Error(`GamersRoom HTTP ${res.status}`);
+  const html = await res.text();
+
+  // Primary: og meta tag — <meta property="product:availability" content="out of stock">
+  const metaMatch = html.match(/product:availability['"]\s*content=['"]([^'"]+)['"]/i);
+  const availability = metaMatch ? metaMatch[1].toLowerCase() : null;
+
+  // Price from meta
+  const priceMatch = html.match(/product:price:amount['"]\s*content=['"]([^'"]+)['"]/i);
+  const price = priceMatch ? `$${priceMatch[1]}` : "?";
+
+  if (availability === "in stock" || availability === "instock") {
+    return { status: "in_stock", price, stockText: "In stock", source: "gamersroom-meta" };
+  }
+  if (availability === "out of stock" || availability === "oos") {
+    return { status: "out_of_stock", price, stockText: "Out of stock", source: "gamersroom-meta" };
+  }
+
+  // Fallback: text search
+  if (/out.of.stock/i.test(html)) {
+    return { status: "out_of_stock", price, stockText: "Out of stock", source: "gamersroom-text" };
+  }
+
+  return { status: "unknown", price, stockText: "?", source: "gamersroom-text" };
+}
+
+// ═══════════════════════════════════════════════════════
 // Race: first "in_stock" wins
 // ═══════════════════════════════════════════════════════
 function getChannels(product) {
   if (product.platform === "woocommerce") {
     return [wooApiDirect(product), wooApiSlug(product), wooHTML(product)];
+  }
+  if (product.platform === "gamersroom") {
+    return [gamersroomHTML(product)];
   }
   return [shopifyJSON(product), shopifyHTML(product)];
 }
