@@ -21,6 +21,28 @@ module.exports = {
       intervalMs: 5_000,
       jitterMs: 500,
     },
+    // ── Shopify (gameology.com.au) ──
+    {
+      name: "OP-17 Booster (Gameology)",
+      platform: "shopify",
+      handle: "one-piece-card-game-op-17-booster-box",
+      siteBase: "https://www.gameology.com.au",
+      intervalMs: 5_000,
+      jitterMs: 500,
+    },
+
+    // ── WooCommerce (m-g.com.au) ──
+    {
+      name: "OP-17 Booster (M-G)",
+      platform: "woocommerce",
+      slug: "one-piece-card-game-tba-op-17-booster-box-limit-1",
+      id: 116375,
+      siteBase: "https://www.m-g.com.au",
+      apiBase: "https://www.m-g.com.au/wp-json/wc/store/v1/products",
+      intervalMs: 5_000,
+      jitterMs: 500,
+    },
+
     // ── GamersRoom (custom platform) ──
     {
       name: "OP-17 Booster (GamersRoom)",
