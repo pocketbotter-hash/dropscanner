@@ -1,62 +1,53 @@
 module.exports = {
   PRODUCTS: [
-    // ── WooCommerce (cardplustcg.com) ──
+    // ── CardPlus WooCommerce — BATCHED (single request for both) ──
     {
-      name: "OP-17 Booster Box",
-      platform: "woocommerce",
-      slug: "one-piece-cg-op-17-booster-display-box-english-release-date-sept-2026",
-      id: 13708,
+      name: "OP-17 Booster Box (CardPlus)",
+      platform: "woocommerce-batch",
+      ids: [13708, 14565],
+      names: ["OP-17 Booster Box (CardPlus)", "EB-05 Extra Booster (CardPlus)"],
       siteBase: "https://cardplustcg.com",
       apiBase: "https://cardplustcg.com/wp-json/wc/store/v1/products",
       intervalMs: 5_000,
       jitterMs: 500,
     },
-    {
-      name: "EB-05 Extra Booster",
-      platform: "woocommerce",
-      slug: "one-piece-card-game-extra-booster-display-tba-eb-05-pre-order",
-      id: 14565,
-      siteBase: "https://cardplustcg.com",
-      apiBase: "https://cardplustcg.com/wp-json/wc/store/v1/products",
-      intervalMs: 5_000,
-      jitterMs: 500,
-    },
-    // ── Shopify (gameology.com.au) ──
+
+    // ── Shopify (gameology.com.au) — fast, poll aggressively ──
     {
       name: "OP-17 Booster (Gameology)",
       platform: "shopify",
       handle: "one-piece-card-game-op-17-booster-box",
       siteBase: "https://www.gameology.com.au",
-      intervalMs: 5_000,
-      jitterMs: 500,
+      intervalMs: 3_000,
+      jitterMs: 300,
     },
 
-    // ── WooCommerce (m-g.com.au) ──
+    // ── WooCommerce (m-g.com.au) — fast, API-only ──
     {
       name: "OP-17 Booster (M-G)",
-      platform: "woocommerce",
+      platform: "woocommerce-single",
       slug: "one-piece-card-game-tba-op-17-booster-box-limit-1",
       id: 116375,
       siteBase: "https://www.m-g.com.au",
       apiBase: "https://www.m-g.com.au/wp-json/wc/store/v1/products",
-      intervalMs: 5_000,
-      jitterMs: 500,
+      intervalMs: 3_000,
+      jitterMs: 300,
     },
 
-    // ── GamersRoom (custom platform) ──
+    // ── GamersRoom (custom) — blazing fast, poll aggressively ──
     {
       name: "OP-17 Booster (GamersRoom)",
       platform: "gamersroom",
       url: "https://www.gamersroom.com.au/shop/one-piece-card-game-booster-display-tba-op-17/276222",
-      intervalMs: 5_000,
-      jitterMs: 500,
+      intervalMs: 3_000,
+      jitterMs: 300,
     },
     {
       name: "EB-05 Extra Booster (GamersRoom)",
       platform: "gamersroom",
       url: "https://www.gamersroom.com.au/shop/one-piece-card-game-extra-booster-display-tba-eb-05pre-order/2882601",
-      intervalMs: 5_000,
-      jitterMs: 500,
+      intervalMs: 3_000,
+      jitterMs: 300,
     },
   ],
 
