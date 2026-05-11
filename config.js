@@ -22,6 +22,16 @@ module.exports = {
       jitterMs: 300,
     },
 
+    // ── Shopify (collectiblemadness.com.au) ──
+    {
+      name: "OP-17 Booster (Collectible Madness)",
+      platform: "shopify",
+      handle: "one-piece-card-game-tba-op-17-booster-box",
+      siteBase: "https://collectiblemadness.com.au",
+      intervalMs: 3_000,
+      jitterMs: 300,
+    },
+
     // ── WooCommerce (m-g.com.au) — fast, API-only ──
     {
       name: "OP-17 Booster (M-G)",
