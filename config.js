@@ -1,17 +1,5 @@
 module.exports = {
   PRODUCTS: [
-    // ── CardPlus WooCommerce — BATCHED (single request for both) ──
-    {
-      name: "OP-17 Booster Box (CardPlus)",
-      platform: "woocommerce-batch",
-      ids: [13708, 14565],
-      names: ["OP-17 Booster Box (CardPlus)", "EB-05 Extra Booster (CardPlus)"],
-      siteBase: "https://cardplustcg.com",
-      apiBase: "https://cardplustcg.com/wp-json/wc/store/v1/products",
-      intervalMs: 5_000,
-      jitterMs: 500,
-    },
-
     // ── Shopify (gameology.com.au) — fast, poll aggressively ──
     {
       name: "OP-17 Booster (Gameology)",
