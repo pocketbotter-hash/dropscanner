@@ -1,4 +1,4 @@
-let cheerio = null; // Lazy-loaded only when needed
+let cheerio = null;
 const config = require("./config");
 
 const state = new Map();
@@ -25,14 +25,18 @@ function loadCheerio() {
   return cheerio;
 }
 
-async function fetchWithRetry(url, options = {}, retries = 2) {
+async function fetchWithRetry(url, options = {}, retries = 3) {
   for (let i = 0; i <= retries; i++) {
     const signal = AbortSignal.timeout(config.REQUEST_TIMEOUT_MS);
     try {
       const res = await fetch(url, { ...options, signal });
-      if (res.status === 429 && i < retries) {
-        const wait = Math.pow(2, i + 1) * 1000;
-        log(`429 on ${new URL(url).hostname} — retry in ${wait}ms`);
+
+      // Retry on 429 (rate limit) AND 5xx (server errors)
+      if (i < retries && (res.status === 429 || res.status >= 500)) {
+        const wait = res.status === 429
+          ? Number(res.headers.get("retry-after") || 5) * 1000
+          : Math.pow(2, i + 1) * 1000;
+        log(`${res.status} on ${new URL(url).hostname} — retry ${i + 1}/${retries} in ${wait}ms`);
         await new Promise((r) => setTimeout(r, wait));
         continue;
       }
@@ -40,7 +44,7 @@ async function fetchWithRetry(url, options = {}, retries = 2) {
     } catch (err) {
       if (i < retries) {
         const wait = Math.pow(2, i + 1) * 1000;
-        log(`Fetch error — retry ${i + 1}/${retries} in ${wait}ms`);
+        log(`Fetch error on ${new URL(url).hostname} — retry ${i + 1}/${retries} in ${wait}ms`);
         await new Promise((r) => setTimeout(r, wait));
         continue;
       }
@@ -139,36 +143,9 @@ async function sendHeartbeat() {
 }
 
 // ═══════════════════════════════════════════════════════
-// WooCommerce batch — single request, multiple products
-// ═══════════════════════════════════════════════════════
-async function wooBatch(product) {
-  const url = cacheBust(`${product.apiBase}?include=${product.ids.join(",")}`);
-  const res = await fetchWithRetry(url, {
-    headers: { Accept: "application/json", "Cache-Control": "no-cache, no-store" },
-  });
-  if (!res.ok) throw new Error(`Batch HTTP ${res.status}`);
-  const products = await res.json();
-
-  // Return results for each product in the batch
-  return product.ids.map((id, i) => {
-    const p = products.find((x) => x.id === id);
-    if (!p) return { name: product.names[i], status: "error", source: "batch-missing" };
-    return {
-      name: product.names[i],
-      status: p.is_in_stock ? "in_stock" : "out_of_stock",
-      price: stripHTML(p.price_html || "?"),
-      stockText: p.stock_availability?.text || "?",
-      url: `${product.siteBase}/product/${p.slug}/`,
-      source: "woo-batch",
-    };
-  });
-}
-
-// ═══════════════════════════════════════════════════════
-// WooCommerce single — API only (fast sites like M-G)
+// WooCommerce single — API only
 // ═══════════════════════════════════════════════════════
 async function wooSingle(product) {
-  // Use slug endpoint (benchmarked faster for M-G)
   const url = cacheBust(`${product.apiBase}?slug=${product.slug}`);
   const res = await fetchWithRetry(url, {
     headers: { Accept: "application/json", "Cache-Control": "no-cache, no-store" },
@@ -186,7 +163,7 @@ async function wooSingle(product) {
 }
 
 // ═══════════════════════════════════════════════════════
-// Shopify — JSON endpoint only (single variant, no HTML needed)
+// Shopify — JSON only
 // ═══════════════════════════════════════════════════════
 async function shopifySingle(product) {
   const url = cacheBust(`${product.siteBase}/products/${product.handle}.json`);
@@ -213,7 +190,7 @@ async function shopifySingle(product) {
 }
 
 // ═══════════════════════════════════════════════════════
-// GamersRoom — meta tag (single fast request)
+// GamersRoom — meta tag
 // ═══════════════════════════════════════════════════════
 async function gamersroomCheck(product) {
   const res = await fetchWithRetry(cacheBust(product.url), {
@@ -247,7 +224,7 @@ async function handleResult(name, url, result) {
   const prev = state.get(name)?.status || "unknown";
 
   if (result.status === "in_stock" && prev !== "in_stock") {
-    log(`🚨 IN STOCK: ${name}`);
+    log(`IN STOCK: ${name}`);
     await notifyInStock(name, url, result);
   } else if (result.status === "out_of_stock" && prev === "in_stock") {
     await notifyOutOfStock(name, url);
@@ -260,46 +237,8 @@ async function handleResult(name, url, result) {
 }
 
 // ═══════════════════════════════════════════════════════
-// Product loops
+// Product loops with adaptive backoff
 // ═══════════════════════════════════════════════════════
-function startBatchLoop(product) {
-  async function tick() {
-    if (!running) return;
-    const start = performance.now();
-
-    try {
-      const results = await wooBatch(product);
-      const total = (performance.now() - start).toFixed(0);
-
-      for (const r of results) {
-        if (r.status === "error") {
-          log(`[${total}ms] ${r.name} → ${r.source} → MISSING`);
-          continue;
-        }
-        log(`[${total}ms] ${r.name} → ${r.source} → ${r.status}`);
-        await handleResult(r.name, r.url, r);
-      }
-    } catch (err) {
-      // Apply error to all products in the batch
-      for (const name of product.names) {
-        const count = (errorCount.get(name) || 0) + 1;
-        errorCount.set(name, count);
-        log(`ERROR ${name} (${count}/${config.MAX_CONSECUTIVE_ERRORS}): ${err.message}`);
-        if (count > 0 && count % config.MAX_CONSECUTIVE_ERRORS === 0) {
-          await notifyError(name, err);
-        }
-      }
-    }
-
-    if (Date.now() - lastHeartbeat > config.HEARTBEAT_INTERVAL_MS) await sendHeartbeat();
-    if (!running) return;
-    const jitter = Math.floor(Math.random() * product.jitterMs * 2) - product.jitterMs;
-    setTimeout(tick, product.intervalMs + jitter);
-  }
-
-  setTimeout(tick, Math.floor(Math.random() * product.intervalMs));
-}
-
 function startSingleLoop(product) {
   const checkFn =
     product.platform === "shopify" ? shopifySingle :
@@ -310,6 +249,8 @@ function startSingleLoop(product) {
     if (!running) return;
     const start = performance.now();
 
+    let nextInterval = product.intervalMs;
+
     try {
       const result = await checkFn(product);
       const total = (performance.now() - start).toFixed(0);
@@ -318,7 +259,17 @@ function startSingleLoop(product) {
     } catch (err) {
       const count = (errorCount.get(product.name) || 0) + 1;
       errorCount.set(product.name, count);
-      log(`ERROR ${product.name} (${count}/${config.MAX_CONSECUTIVE_ERRORS}): ${err.message}`);
+
+      // Adaptive backoff: the more consecutive errors, the longer we wait
+      // 1-5 errors: normal interval, 6-15: 2x, 16-30: 4x, 30+: 8x (max ~40s)
+      const backoffMultiplier =
+        count <= 5 ? 1 :
+        count <= 15 ? 2 :
+        count <= 30 ? 4 : 8;
+      nextInterval = product.intervalMs * backoffMultiplier;
+
+      log(`ERROR ${product.name} (${count}/${config.MAX_CONSECUTIVE_ERRORS}) [next: ${(nextInterval / 1000).toFixed(0)}s]: ${err.message}`);
+
       if (count > 0 && count % config.MAX_CONSECUTIVE_ERRORS === 0) {
         await notifyError(product.name, err);
       }
@@ -326,10 +277,12 @@ function startSingleLoop(product) {
 
     if (Date.now() - lastHeartbeat > config.HEARTBEAT_INTERVAL_MS) await sendHeartbeat();
     if (!running) return;
+
     const jitter = Math.floor(Math.random() * product.jitterMs * 2) - product.jitterMs;
-    setTimeout(tick, product.intervalMs + jitter);
+    setTimeout(tick, nextInterval + jitter);
   }
 
+  // Stagger start
   setTimeout(tick, Math.floor(Math.random() * product.intervalMs));
 }
 
@@ -349,28 +302,18 @@ async function main() {
     process.exit(1);
   }
 
-  log("DropScanner v9 — optimised");
+  log("DropScanner v10 — resilient");
+  config.PRODUCTS.forEach((p) =>
+    log(`  ${p.platform.padEnd(18)} ${p.name.padEnd(40)} every ${p.intervalMs / 1000}s`)
+  );
 
-  // Initialize state for all tracked product names
+  // Initialize state
   for (const p of config.PRODUCTS) {
-    if (p.platform === "woocommerce-batch") {
-      for (const name of p.names) state.set(name, { status: "unknown" });
-      log(`  batch(${p.ids.length})    ${p.names.join(", ").padEnd(50)} every ${p.intervalMs / 1000}s`);
-    } else {
-      state.set(p.name, { status: "unknown" });
-      log(`  ${p.platform.padEnd(12)} ${p.name.padEnd(40)} every ${p.intervalMs / 1000}s`);
-    }
+    state.set(p.name, { status: "unknown" });
   }
 
   await sendHeartbeat();
-
-  for (const p of config.PRODUCTS) {
-    if (p.platform === "woocommerce-batch") {
-      startBatchLoop(p);
-    } else {
-      startSingleLoop(p);
-    }
-  }
+  config.PRODUCTS.forEach((p) => startSingleLoop(p));
 }
 
 main().catch((err) => {
