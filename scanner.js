@@ -3,6 +3,8 @@ const config = require("./config");
 
 const state = new Map();
 const errorCount = new Map();
+const lastHostRequest = new Map();
+const MIN_HOST_GAP_MS = 1_500; // minimum 1.5s between requests to same host
 let lastHeartbeat = 0;
 let heartbeatLock = false;
 let running = true;
@@ -51,6 +53,19 @@ async function fetchWithRetry(url, options = {}, retries = 3) {
       throw err;
     }
   }
+}
+
+// Per-host throttle — prevents concurrent requests to the same server
+async function throttledFetch(url, options = {}, retries = 3) {
+  const hostname = new URL(url).hostname;
+  const now = Date.now();
+  const last = lastHostRequest.get(hostname) || 0;
+  const gap = now - last;
+  if (gap < MIN_HOST_GAP_MS) {
+    await new Promise((r) => setTimeout(r, MIN_HOST_GAP_MS - gap));
+  }
+  lastHostRequest.set(hostname, Date.now());
+  return fetchWithRetry(url, options, retries);
 }
 
 function productUrl(product) {
@@ -147,7 +162,7 @@ async function sendHeartbeat() {
 // ═══════════════════════════════════════════════════════
 async function wooSingle(product) {
   const url = cacheBust(`${product.apiBase}?slug=${product.slug}`);
-  const res = await fetchWithRetry(url, {
+  const res = await throttledFetch(url, {
     headers: { Accept: "application/json", "Cache-Control": "no-cache, no-store" },
   });
   if (!res.ok) throw new Error(`API HTTP ${res.status}`);
@@ -167,7 +182,7 @@ async function wooSingle(product) {
 // ═══════════════════════════════════════════════════════
 async function shopifySingle(product) {
   const url = cacheBust(`${product.siteBase}/products/${product.handle}.json`);
-  const res = await fetchWithRetry(url, {
+  const res = await throttledFetch(url, {
     headers: { Accept: "application/json", "Cache-Control": "no-cache, no-store" },
   });
   if (!res.ok) throw new Error(`Shopify HTTP ${res.status}`);
@@ -193,10 +208,15 @@ async function shopifySingle(product) {
 // GamersRoom — meta tag
 // ═══════════════════════════════════════════════════════
 async function gamersroomCheck(product) {
-  const res = await fetchWithRetry(cacheBust(product.url), {
-    headers: { "User-Agent": config.USER_AGENT, Accept: "text/html", "Cache-Control": "no-cache, no-store" },
+  const res = await throttledFetch(cacheBust(product.url), {
+    headers: {
+      "User-Agent": config.USER_AGENT,
+      Accept: "text/html",
+      "Cache-Control": "no-cache, no-store",
+      Range: "bytes=0-8191",  // meta tags live in <head>, first 8KB is enough
+    },
   });
-  if (!res.ok) throw new Error(`GamersRoom HTTP ${res.status}`);
+  if (!res.ok && res.status !== 206) throw new Error(`GamersRoom HTTP ${res.status}`);
   const html = await res.text();
 
   const metaMatch = html.match(/product:availability['"]\s*content=['"]([^'"]+)['"]/i);
@@ -302,7 +322,7 @@ async function main() {
     process.exit(1);
   }
 
-  log("DropScanner v10 — resilient");
+  log("DropScanner v11 — throttled");
   config.PRODUCTS.forEach((p) =>
     log(`  ${p.platform.padEnd(18)} ${p.name.padEnd(40)} every ${p.intervalMs / 1000}s`)
   );
