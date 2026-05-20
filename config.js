@@ -1,6 +1,6 @@
 module.exports = {
   PRODUCTS: [
-    // ── Shopify (gameology.com.au) — fast, poll aggressively ──
+    // ── Gameology (Shopify) ──
     {
       name: "OP-17 Booster (Gameology)",
       platform: "shopify",
@@ -9,8 +9,24 @@ module.exports = {
       intervalMs: 3_000,
       jitterMs: 300,
     },
+    {
+      name: "OP-18 Booster (Gameology)",
+      platform: "shopify",
+      handle: "one-piece-card-game-op-18-booster-box",
+      siteBase: "https://www.gameology.com.au",
+      intervalMs: 3_000,
+      jitterMs: 300,
+    },
+    {
+      name: "EB-05 Booster (Gameology)",
+      platform: "shopify",
+      handle: "one-piece-card-game-eb-05-booster-box",
+      siteBase: "https://www.gameology.com.au",
+      intervalMs: 3_000,
+      jitterMs: 300,
+    },
 
-    // ── Shopify (collectiblemadness.com.au) ──
+    // ── Collectible Madness (Shopify) ──
     {
       name: "OP-17 Booster (Collectible Madness)",
       platform: "shopify",
@@ -20,7 +36,25 @@ module.exports = {
       jitterMs: 300,
     },
 
-    // ── WooCommerce (m-g.com.au) — fast, API-only ──
+    // ── GameTraders (Shopify) ──
+    {
+      name: "OP-18 Booster (GameTraders)",
+      platform: "shopify",
+      handle: "pre-order-one-piece-card-game-booster-display-tba-op-18-20th-november",
+      siteBase: "https://www.gametradersinglefarm.com.au",
+      intervalMs: 3_000,
+      jitterMs: 300,
+    },
+    {
+      name: "EB-05 Booster (GameTraders)",
+      platform: "shopify",
+      handle: "pre-order-one-piece-card-game-extra-booster-box-tba-eb-05-30th-october",
+      siteBase: "https://www.gametradersinglefarm.com.au",
+      intervalMs: 3_000,
+      jitterMs: 300,
+    },
+
+    // ── M-G (WooCommerce) ──
     {
       name: "OP-17 Booster (M-G)",
       platform: "woocommerce-single",
@@ -31,8 +65,40 @@ module.exports = {
       intervalMs: 3_000,
       jitterMs: 300,
     },
+    {
+      name: "EB-05 Booster (M-G)",
+      platform: "woocommerce-single",
+      slug: "one-piece-card-game-tba-eb-05-booster-box",
+      id: 121797,
+      siteBase: "https://www.m-g.com.au",
+      apiBase: "https://www.m-g.com.au/wp-json/wc/store/v1/products",
+      intervalMs: 3_000,
+      jitterMs: 300,
+    },
 
-    // ── GamersRoom (custom) — blazing fast, poll aggressively ──
+    // ── CardPlus (WooCommerce) ──
+    {
+      name: "EB-05 Booster (CardPlus)",
+      platform: "woocommerce-single",
+      slug: "one-piece-card-game-extra-booster-display-tba-eb-05-pre-order",
+      id: 14565,
+      siteBase: "https://cardplustcg.com",
+      apiBase: "https://cardplustcg.com/wp-json/wc/store/v1/products",
+      intervalMs: 5_000,
+      jitterMs: 500,
+    },
+    {
+      name: "OP-18 Booster (CardPlus)",
+      platform: "woocommerce-single",
+      slug: "one-piece-cg-op-18-booster-display-box-english-release-date-20-nov-2026-pre-order",
+      id: 15244,
+      siteBase: "https://cardplustcg.com",
+      apiBase: "https://cardplustcg.com/wp-json/wc/store/v1/products",
+      intervalMs: 5_000,
+      jitterMs: 500,
+    },
+
+    // ── GamersRoom (custom) ──
     {
       name: "OP-17 Booster (GamersRoom)",
       platform: "gamersroom",
