@@ -26,4 +26,6 @@ jobs:
       - name: Run scanner
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          PROXY_URL: ${{ secrets.PROXY_URL }}
+          PROXY_KEY: ${{ secrets.PROXY_KEY }}
         run: node scanner.js

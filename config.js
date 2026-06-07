@@ -108,8 +108,9 @@ module.exports = {
       variantId: 46321723408556,
       price: "$249.95",
       siteBase: "https://www.treasurecollectables.com.au",
-      intervalMs: 5_000,
-      jitterMs: 500,
+      intervalMs: 3_000,
+      jitterMs: 300,
+      useProxy: true,
     },
 
     // ── GamersRoom (custom — small server, poll gently) ──

@@ -256,14 +256,28 @@ async function gamersroomCheck(product) {
 // Uses cart/add.js: returns 422 "sold out" or 200 (available)
 // ═══════════════════════════════════════════════════════
 async function shopifyCartCheck(product) {
-  const url = `${product.siteBase}/cart/add.js`;
-  const res = await throttledFetch(url, {
-    method: "POST",
-    headers: {
+  const directUrl = `${product.siteBase}/cart/add.js`;
+
+  let url, headers;
+  if (product.useProxy && config.PROXY_URL && config.PROXY_KEY) {
+    // Route through Cloudflare Worker — bypasses Cloudflare bot detection (internal traffic)
+    url = `${config.PROXY_URL}?url=${encodeURIComponent(directUrl)}&method=POST`;
+    headers = {
+      "Content-Type": "application/json",
+      "x-proxy-key": config.PROXY_KEY,
+    };
+  } else {
+    url = directUrl;
+    headers = {
       "Content-Type": "application/json",
       "User-Agent": config.USER_AGENT,
       "Cache-Control": "no-cache, no-store",
-    },
+    };
+  }
+
+  const res = await throttledFetch(url, {
+    method: "POST",
+    headers,
     body: JSON.stringify({ items: [{ id: product.variantId, quantity: 1 }] }),
   });
 
