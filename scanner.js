@@ -70,6 +70,7 @@ async function throttledFetch(url, options = {}, retries = 3) {
 
 function productUrl(product) {
   if (product.platform === "shopify") return `${product.siteBase}/products/${product.handle}`;
+  if (product.platform === "shopify-cart") return `${product.siteBase}/products/${product.handle}`;
   if (product.platform === "gamersroom") return product.url;
   if (product.platform === "woocommerce-single") return `${product.siteBase}/product/${product.slug}/`;
   if (product.platform === "woocommerce-batch") return product.siteBase;
@@ -161,10 +162,23 @@ async function sendHeartbeat() {
 // WooCommerce single — API only
 // ═══════════════════════════════════════════════════════
 async function wooSingle(product) {
-  const url = cacheBust(`${product.apiBase}?slug=${product.slug}`);
-  const res = await throttledFetch(url, {
-    headers: { Accept: "application/json", "Cache-Control": "no-cache, no-store" },
-  });
+  const directUrl = cacheBust(`${product.apiBase}?slug=${product.slug}`);
+
+  // Route through Cloudflare Worker proxy if configured (bypasses datacenter IP blocks)
+  let url, headers;
+  if (product.useProxy && config.PROXY_URL && config.PROXY_KEY) {
+    url = `${config.PROXY_URL}?url=${encodeURIComponent(directUrl)}`;
+    headers = {
+      Accept: "application/json",
+      "Cache-Control": "no-cache, no-store",
+      "x-proxy-key": config.PROXY_KEY,
+    };
+  } else {
+    url = directUrl;
+    headers = { Accept: "application/json", "Cache-Control": "no-cache, no-store" };
+  }
+
+  const res = await throttledFetch(url, { headers });
   if (!res.ok) throw new Error(`API HTTP ${res.status}`);
   const data = await res.json();
   if (!data.length) throw new Error("API returned empty");
@@ -238,6 +252,47 @@ async function gamersroomCheck(product) {
 }
 
 // ═══════════════════════════════════════════════════════
+// Shopify Cart Check — for stores that hide inventory fields
+// Uses cart/add.js: returns 422 "sold out" or 200 (available)
+// ═══════════════════════════════════════════════════════
+async function shopifyCartCheck(product) {
+  const url = `${product.siteBase}/cart/add.js`;
+  const res = await throttledFetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "User-Agent": config.USER_AGENT,
+      "Cache-Control": "no-cache, no-store",
+    },
+    body: JSON.stringify({ items: [{ id: product.variantId, quantity: 1 }] }),
+  });
+
+  const data = await res.json();
+
+  if (res.status === 200) {
+    // Successfully added — it's in stock. Clear the cart to avoid accumulation.
+    await fetch(`${product.siteBase}/cart/clear.js`, { method: "POST" }).catch(() => {});
+    return {
+      status: "in_stock",
+      price: product.price || "?",
+      stockText: "In stock (cart check)",
+      source: "shopify-cart",
+    };
+  }
+
+  if (res.status === 422 && /sold out/i.test(data.message || data.description || "")) {
+    return {
+      status: "out_of_stock",
+      price: product.price || "?",
+      stockText: "Sold out",
+      source: "shopify-cart",
+    };
+  }
+
+  throw new Error(`Shopify cart unexpected: HTTP ${res.status} — ${data.message || JSON.stringify(data)}`);
+}
+
+// ═══════════════════════════════════════════════════════
 // State transition handler
 // ═══════════════════════════════════════════════════════
 async function handleResult(name, url, result) {
@@ -262,6 +317,7 @@ async function handleResult(name, url, result) {
 function startSingleLoop(product) {
   const checkFn =
     product.platform === "shopify" ? shopifySingle :
+    product.platform === "shopify-cart" ? shopifyCartCheck :
     product.platform === "gamersroom" ? gamersroomCheck :
     wooSingle;
 

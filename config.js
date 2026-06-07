@@ -86,6 +86,7 @@ module.exports = {
       apiBase: "https://cardplustcg.com/wp-json/wc/store/v1/products",
       intervalMs: 5_000,
       jitterMs: 500,
+      useProxy: true,
     },
     {
       name: "OP-18 Booster (CardPlus)",
@@ -94,6 +95,19 @@ module.exports = {
       id: 15244,
       siteBase: "https://cardplustcg.com",
       apiBase: "https://cardplustcg.com/wp-json/wc/store/v1/products",
+      intervalMs: 5_000,
+      jitterMs: 500,
+      useProxy: true,
+    },
+
+    // ── Treasure Collectables (Shopify — hidden inventory, uses cart check) ──
+    {
+      name: "EB-05 Booster Wave 1 (Treasure Collectables)",
+      platform: "shopify-cart",
+      handle: "one-piece-card-game-extra-booster-display-tba-eb-05-pre-order-wave-1",
+      variantId: 46321723408556,
+      price: "$249.95",
+      siteBase: "https://www.treasurecollectables.com.au",
       intervalMs: 5_000,
       jitterMs: 500,
     },
@@ -114,6 +128,9 @@ module.exports = {
       jitterMs: 500,
     },
   ],
+
+  PROXY_URL: process.env.PROXY_URL || "",       // Cloudflare Worker URL
+  PROXY_KEY: process.env.PROXY_KEY || "",       // shared secret for proxy auth
 
   DISCORD_WEBHOOK_URL: process.env.DISCORD_WEBHOOK_URL || "",
 
