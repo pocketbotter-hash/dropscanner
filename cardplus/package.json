@@ -1,0 +1,13 @@
+{
+  "name": "cardplus-checker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Browser-based stock checker for CardPlus (beats hCDN JS challenge)",
+  "main": "checker.js",
+  "scripts": {
+    "start": "node checker.js"
+  },
+  "dependencies": {
+    "playwright": "^1.48.0"
+  }
+}
