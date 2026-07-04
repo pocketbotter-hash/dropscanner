@@ -3,6 +3,7 @@ const config = require("./config");
 
 const state = new Map();
 const errorCount = new Map();
+const alerted = new Map(); // has an error alert already been sent for the current outage?
 const lastHostRequest = new Map();
 const MIN_HOST_GAP_MS = 1_500; // minimum 1.5s between requests to same host
 let lastHeartbeat = 0;
@@ -133,8 +134,17 @@ async function notifyError(name, error) {
   const count = errorCount.get(name) || 0;
   await sendDiscord(null, {
     title: `Scanner Error — ${name}`,
-    description: `Failed ${count}x.\n\`\`\`${error.message}\`\`\``,
+    description: `Failing repeatedly (${count}x). Likely a site outage — will keep retrying quietly and notify on recovery.\n\`\`\`${error.message}\`\`\``,
     color: 0xffaa00,
+    timestamp: new Date().toISOString(),
+  });
+}
+
+async function notifyRecovered(name) {
+  await sendDiscord(null, {
+    title: `Recovered — ${name}`,
+    description: "Scanning has resumed normally.",
+    color: 0x2ecc71,
     timestamp: new Date().toISOString(),
   });
 }
@@ -321,6 +331,12 @@ async function handleResult(name, url, result) {
     await notifyError(name, new Error("Page structure changed."));
   }
 
+  // If this product had an outstanding outage alert, tell the user it's back
+  if (alerted.get(name)) {
+    await notifyRecovered(name);
+    alerted.set(name, false);
+  }
+
   state.set(name, { status: result.status });
   errorCount.set(name, 0);
 }
@@ -360,7 +376,9 @@ function startSingleLoop(product) {
 
       log(`ERROR ${product.name} (${count}/${config.MAX_CONSECUTIVE_ERRORS}) [next: ${(nextInterval / 1000).toFixed(0)}s]: ${err.message}`);
 
-      if (count > 0 && count % config.MAX_CONSECUTIVE_ERRORS === 0) {
+      // Alert ONCE when the outage threshold is crossed, then stay quiet until recovery.
+      if (count >= config.MAX_CONSECUTIVE_ERRORS && !alerted.get(product.name)) {
+        alerted.set(product.name, true);
         await notifyError(product.name, err);
       }
     }
