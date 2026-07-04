@@ -76,29 +76,7 @@ module.exports = {
       jitterMs: 300,
     },
 
-    // ── CardPlus (WooCommerce) ──
-    {
-      name: "EB-05 Booster (CardPlus)",
-      platform: "woocommerce-single",
-      slug: "one-piece-card-game-extra-booster-display-tba-eb-05-pre-order",
-      id: 14565,
-      siteBase: "https://cardplustcg.com",
-      apiBase: "https://cardplustcg.com/wp-json/wc/store/v1/products",
-      intervalMs: 5_000,
-      jitterMs: 500,
-      useProxy: true,
-    },
-    {
-      name: "OP-18 Booster (CardPlus)",
-      platform: "woocommerce-single",
-      slug: "one-piece-cg-op-18-booster-display-box-english-release-date-20-nov-2026-pre-order",
-      id: 15244,
-      siteBase: "https://cardplustcg.com",
-      apiBase: "https://cardplustcg.com/wp-json/wc/store/v1/products",
-      intervalMs: 5_000,
-      jitterMs: 500,
-      useProxy: true,
-    },
+    // CardPlus removed — Hostinger WAF blocks all server IPs including Cloudflare Workers
 
     // ── Treasure Collectables (Shopify — hidden inventory, uses cart check) ──
     {
@@ -118,15 +96,15 @@ module.exports = {
       name: "OP-17 Booster (GamersRoom)",
       platform: "gamersroom",
       url: "https://www.gamersroom.com.au/shop/one-piece-card-game-booster-display-tba-op-17/276222",
-      intervalMs: 5_000,
-      jitterMs: 500,
+      intervalMs: 7_000,
+      jitterMs: 1_000,
     },
     {
       name: "EB-05 Extra Booster (GamersRoom)",
       platform: "gamersroom",
       url: "https://www.gamersroom.com.au/shop/one-piece-card-game-extra-booster-display-tba-eb-05pre-order/2882601",
-      intervalMs: 5_000,
-      jitterMs: 500,
+      intervalMs: 7_000,
+      jitterMs: 1_000,
     },
   ],
 
